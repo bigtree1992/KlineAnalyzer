@@ -28,6 +28,21 @@ class DBConnection:
     def hexists(self, hash, key):
         return self.redis.hexists(hash,key)
 
+    def rpush(self, list_name, item):
+        self.redis.rpush(list_name, item)
+
+    def lpush(self, list_name, item):
+        self.redis.lpush(list_name, item)
+
+    def lrange(self, list_name, start, end):
+        return self.redis.lrange(list_name, start, end)
+    
+    def ltrim(self, list_name, start, end):
+        self.redis.ltrim(list_name, start, end)
+
+    def llen(self, list_name):
+        return self.redis.llen(list_name)
+
 class DataConnection:
     def __init__(self):
         self.ws = websocket.WebSocketApp(
@@ -41,7 +56,7 @@ class DataConnection:
         self.on_open = None
     
     def start(self):
-        # websocket.enableTrace(True)
+        #websocket.enableTrace(True)
         self.ws.run_forever()
     
     def stop(self):
@@ -55,20 +70,23 @@ class DataConnection:
         if self.on_open != None:
             self.on_open()
         
-    def _on_message(self, ws, message):
-        result = gzip.decompress(message).decode('utf-8')
-
-        if result[:7] == '{"ping"':
-            ts = result[8:21]
-            pong = '{"pong":' + ts + '}'
-            ws.send(pong)
-        else:
-            data = json.loads(result)
-            if self.on_message != None:
-                self.on_message(data)
+    def _on_message(self, ws, message):             
+        try:
+            result = gzip.decompress(message).decode('utf-8')
+ 
+            if result[:7] == '{"ping"':
+                ts = result[8:21]
+                pong = '{"pong":' + ts + '}'
+                ws.send(pong)
+            else:
+                data = json.loads(result)
+                if self.on_message != None:
+                    self.on_message(data)     
+        except Exception as e:
+            print('[on_message] error : ' + str(e))        
 
     def _on_error(self, ws, error):
-        print(error)
+        print("[DataConnection] " + str(error))
 
     def _on_close(self, ws):
         print("[DataConnection] closed.")

@@ -14,7 +14,7 @@ kline_init.py K线数据基础数据初始化
 kline_storager.py K线历史数据存储模块
 kline_realtime.py K线实时数据获取模块
 kline_analysis.py K线实时数据分析模块
-
+kline_trade.py 根据分析模块的事件进行交易
 
 未来开发计划
 用户界面
