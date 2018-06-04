@@ -5,7 +5,17 @@ import gzip
 import redis
 import pymongo
 import json
-import websocket
+
+from tornado import gen
+from tornado import httpclient
+from tornado import httputil
+from tornado import ioloop
+import tornado
+import tornado.websocket
+
+import threading
+import time
+
 
 class DBConnection:
     def start(self):
@@ -44,63 +54,6 @@ class DBConnection:
         return self.redis.llen(list_name)
 
 class DataConnection:
-    def __init__(self):
-        self.ws = websocket.WebSocketApp(
-            "wss://api.huobi.br.com/ws",
-            on_message = self._on_message,
-            on_error = self._on_error,
-            on_close = self._on_close,
-            on_open = self._on_open)
-
-        self.on_message = None
-        self.on_open = None
-    
-    def start(self):
-        #websocket.enableTrace(True)
-        self.ws.run_forever()
-    
-    def stop(self):
-        self.ws.close()
-
-    def send(self, msg):
-        self.ws.send(msg)
-
-    def _on_open(self, ws):
-        print("[DataConnection] opened.")
-        if self.on_open != None:
-            self.on_open()
-        
-    def _on_message(self, ws, message):             
-        try:
-            result = gzip.decompress(message).decode('utf-8')
- 
-            if result[:7] == '{"ping"':
-                ts = result[8:21]
-                pong = '{"pong":' + ts + '}'
-                ws.send(pong)
-            else:
-                data = json.loads(result)
-                if self.on_message != None:
-                    self.on_message(data)     
-        except Exception as e:
-            print('[on_message] error : ' + str(e))        
-
-    def _on_error(self, ws, error):
-        print("[DataConnection] " + str(error))
-
-    def _on_close(self, ws):
-        print("[DataConnection] closed.")
-
-
-from tornado import gen
-from tornado import httpclient
-from tornado import httputil
-from tornado import ioloop
-import tornado
-import threading
-import time
-
-class DataConnection1:
     
     DISCONNECTED = 0
     CONNECTING = 1
@@ -136,14 +89,12 @@ class DataConnection1:
             self._connect_status = self.DISCONNECTED
             self._ws_connection and self._ws_connection.close()
             self._ws_connection = None
-
         
     def send(self, msg):
         if self._ws_connection:
-            self._io_loop.call_later(0, self._send, msg )
+            self._io_loop.add_callback(self._send, msg )
 
-    def _send(self, msg):        
-        print(msg)
+    def _send(self, msg):            
         self._ws_connection.write_message(msg)
 
     def _on_open(self, future):
@@ -164,7 +115,6 @@ class DataConnection1:
 
     @gen.coroutine
     def _read_messages(self):
-        print('_read_messages')
         while True:
             msg = yield self._ws_connection.read_message()
             if msg is None:
@@ -185,6 +135,7 @@ class DataConnection1:
             else:
                 data = json.loads(result)
                 if self.on_message != None:
-                    self.on_message(data)     
+                    self.on_message(data)
+                    print("[message] end")
         except Exception as e:
             print('[on_message] error : ' + str(e))        

@@ -49,7 +49,6 @@ class KlineTaskConsumer:
     def _wait_and_process_task(self):
         
         while self.running:
-            
             self.current_task = self.task_queue.get()
 
             if self.current_task.task_type == TaskType.Stop:
@@ -57,19 +56,22 @@ class KlineTaskConsumer:
                 #self.data_conn.on_message = None
                 #self.data_conn.stop()
                 self.running = False
+                self.task_sem.release()
 
             elif self.current_task.task_type == TaskType.EndASymbol:
                 pass
                 #self.db_conn.hset(self.current_task.symbol, 'enabled', 2)
+                self.task_sem.release()
 
-            elif self.current_task.task_type == TaskType.GetData:
-                request = self.current_task.get_kline_request()               
+            elif self.current_task.task_type == TaskType.GetData:          
+                request = self.current_task.get_kline_request()                               
                 self.data_conn.send(request)
 
     def on_message(self, message):
+            
         if message['status'] != 'ok':
             print("[GetKlineTask] status != ok -> " + str(message))
-            
+            # ToDo : 重新将任务放到队列
             self.task_sem.release()
             return
 
@@ -77,9 +79,8 @@ class KlineTaskConsumer:
 
         data_count = len(message['data'])            
         if data_count <= 0:
-            print("[GetKlineTask] %s Task Stop 1001." % (db_name)) 
-            
-            self.task_sem.release()   
+            print("[GetKlineTask] %s Task Stop 1001." % (db_name))             
+            self.task_sem.release() 
             return
 
         datas = message['data']
@@ -110,13 +111,13 @@ class KlineTaskConsumer:
 
 class KlineTaskProducer:
     def __init__(self, db_conn, init_run=False):
-        self.periods = ['1min','5min','15min','30min','60min','1day','1week']
-        #self.periods = ['1min']
+        #self.periods = ['1min','5min','15min','30min','60min','1day','1week']
+        self.periods = ['1min']
         self.init_run = init_run
         self.db_conn = db_conn
         self.symbols = None
         self.task_queue = queue.Queue(maxsize = 12)
-        self.task_sem = threading.Semaphore(2)
+        self.task_sem = threading.Semaphore(6)
 
     def start(self):
         self.thread = threading.Thread(target=self.run)
@@ -128,67 +129,71 @@ class KlineTaskProducer:
 
     def run(self):
         if not self.init_run:
-            while self.running:
-                print('[start]')
-                start_time = time.time()
-                
-                self._get_symbols()
-                
-                cur_minute = int(start_time / 60)
-
-                for symbol in self.symbols:                 
-                    
-                    enabled = self.db_conn.hget(symbol, 'enabled')
-                    if int(enabled) != 2:
-                        continue
-  
-                    self.post_task(symbol,'1min')
-                    
-                    if cur_minute % 5 == 1:
-                        self.post_task(symbol,'5min')
-
-                    if cur_minute % 15 == 2:
-                        self.post_task(symbol,'15min')
-
-                    if cur_minute % 30 == 2:
-                        self.post_task(symbol,'30min')
-
-                    if cur_minute % 60 == 3:
-                        self.post_task(symbol,'60min')
-
-                    if cur_minute % (60 * 24) == 3:
-                        self.post_task(symbol,'1day')
-
-                    if cur_minute % (60 * 24 * 7) == 4:
-                        self.post_task(symbol,'1week')
-
-                end_time = time.time()
-                #计算代码时间并休息一段时间保证是一分钟运行一次
-                total_time = 60 - (end_time - start_time)
-                if total_time > 0:
-                    time.sleep(total_time)
-                print('[next]')
+            self._run_in_runtime()
         else :
-            self._get_symbols()
-            start_time = time.time()
-            for symbol in self.symbols:
-                enabled = self.db_conn.hget(symbol, 'enabled')
+            self._run_by_init()
+
+    def _run_by_init(self):
+        self._get_symbols()
+        start_time = time.time()
+        for symbol in self.symbols:
+            enabled = self.db_conn.hget(symbol, 'enabled')
         
-                if int(enabled) != 1:
-                    continue
-                
-                for period in self.periods:
-                    self.post_task_by_init(symbol, period)
+            if int(enabled) != 1:
+                continue
+            
+            for period in self.periods:
+                self._post_task_by_init(symbol, period)
 
-                task = KlineTask(TaskType.EndASymbol,symbol)
-                self._put_task(task)
-
-            task = KlineTask(TaskType.Stop)
+            task = KlineTask(TaskType.EndASymbol,symbol)
             self._put_task(task)
 
+        task = KlineTask(TaskType.Stop)
+        self._put_task(task)
+
+        end_time = time.time()
+        print('[init] total_time = ' + str(end_time - start_time))
+
+    def _run_in_runtime(self):
+        while self.running:
+            start_time = time.time()
+            
+            self._get_symbols()
+            
+            cur_minute = int(start_time / 60)
+
+            for symbol in self.symbols:                 
+                
+                enabled = self.db_conn.hget(symbol, 'enabled')
+                if int(enabled) != 2:
+                    continue
+  
+                self._post_task(symbol,'1min')
+                
+                if cur_minute % 5 == 1:
+                    self._post_task(symbol,'5min')
+
+                if cur_minute % 15 == 2:
+                    self._post_task(symbol,'15min')
+
+                if cur_minute % 30 == 2:
+                    self._post_task(symbol,'30min')
+
+                if cur_minute % 60 == 3:
+                    self._post_task(symbol,'60min')
+
+                if cur_minute % (60 * 24) == 3:
+                    self._post_task(symbol,'1day')
+
+                if cur_minute % (60 * 24 * 7) == 4:
+                    self._post_task(symbol,'1week')
+
             end_time = time.time()
-            print("[init] total_time = " + str(end_time - start_time))
-    
+            #计算代码时间并休息一段时间保证是一分钟运行一次
+            total_time = 60 - (end_time - start_time)
+            if total_time > 0:
+                time.sleep(total_time)
+
     def _put_task(self, task):
         self.task_sem.acquire()
         self.task_queue.put(task)
@@ -199,7 +204,7 @@ class KlineTaskProducer:
         for s in symbols:
             self.symbols.append(s.decode('utf-8'))
 
-    def post_task(self, symbol, period):
+    def _post_task(self, symbol, period):
         
         time_step = self._create_time_step(period, 1)
         #开始时间设置为当前数据写入到的时间
@@ -213,7 +218,7 @@ class KlineTaskProducer:
         task = KlineTask(TaskType.GetData, symbol, period, start_time, end_time)
         self._put_task(task)
     
-    def post_task_by_init(self, symbol, period):
+    def _post_task_by_init(self, symbol, period):
         
         time_step = self._create_time_step(period, 300)
         
@@ -261,7 +266,7 @@ class KlineTaskProducer:
 class Main:
     def __init__(self):
         self.db_conn = kline_common.DBConnection()
-        self.data_conn = kline_common.DataConnection1()
+        self.data_conn = kline_common.DataConnection()
         
     def start(self):
         self.db_conn.start()
