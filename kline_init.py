@@ -9,7 +9,7 @@ class Main:
 	def __init__(self):
 		self.db_conn = kline_common.DBConnection()
 		
-	def start(self):
+	def start(self,overwrite):
 		self.db_conn.start()
 		# 需要进行初始化的交易对
 		tradesymbols = [ {'symbol':'btcusdt','init_time':'2017-10-26 00:00:00'}, 
@@ -76,16 +76,16 @@ class Main:
 				self.db_conn.hset(symbol,'init_time',init_time)
 				#如果当前Kline时间不存在就设置这个交易对的当前Kline时间为初始时间                
 				for cur_time_key in cur_times:
-					if not self.db_conn.hexists(symbol,cur_time_key):
+					if not self.db_conn.hexists(symbol,cur_time_key) or overwrite:
 						time_t = time.strptime(init_time, "%Y-%m-%d %H:%M:%S")
 						cur_time = int(time.mktime(time_t))
 						self.db_conn.hset(symbol,cur_time_key, cur_time)
 				#添加一个开关方便动态进行数据获取
-				if not self.db_conn.hexists(symbol,'enabled'):
+				if not self.db_conn.hexists(symbol,'enabled') or overwrite:
 					self.db_conn.hset(symbol,'enabled',0)
 			except Exception as e:
 				print("[init] 2 " + str(e))
 
 if __name__ == "__main__":
 	main = Main()
-	main.start()
+	main.start(True)
