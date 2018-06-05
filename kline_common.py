@@ -18,10 +18,12 @@ import time
 
 
 class DBConnection:
-    def start(self):
-        self.client = pymongo.MongoClient('localhost', 27017)
-        self.db = self.client['klinedata']
-        self.redis = redis.Redis(host="localhost", port=6379, db=0)
+    def start(self, use_redis = True, use_db = True):
+        if use_db:
+            self.client = pymongo.MongoClient('localhost', 27017)
+            self.db = self.client['klinedata']
+        if use_redis:
+            self.redis = redis.Redis(host="localhost", port=6379, db=0)
 
     def get_collection(self, name, idunique=True):
         collection = self.db[name]
@@ -53,6 +55,14 @@ class DBConnection:
     def llen(self, list_name):
         return self.redis.llen(list_name)
 
+    def publish(self, topic, message):
+        self.redis.publish(topic, message)
+
+    def subscribe(self, topic):
+        pubsub = self.redis.pubsub()
+        pubsub.subscribe(topic)
+        return pubsub
+
 class DataConnection:
     
     DISCONNECTED = 0
@@ -67,7 +77,8 @@ class DataConnection:
         self._connect_status = self.DISCONNECTED
         
 
-    def start(self):
+    def start(self, receive_raw=False):
+        self.receive_raw = receive_raw
         self._connect_status = self.CONNECTING
         headers = httputil.HTTPHeaders({'Content-Type': 'application/json'})
         request = httpclient.HTTPRequest(url = "wss://api.huobi.br.com/ws",
@@ -124,7 +135,7 @@ class DataConnection:
             self._on_message(msg)
         
         
-    def _on_message(self, message):             
+    def _on_message(self, message):
         try:
             result = gzip.decompress(message).decode('utf-8')
  
@@ -132,10 +143,16 @@ class DataConnection:
                 ts = result[8:21]
                 pong = '{"pong":' + ts + '}'
                 self.send(pong)
+                return
+            
+            if self.on_message == None:
+                return
+
+            if not self.receive_raw:
+                data = json.loads(result)                    
+                self.on_message(data)
             else:
-                data = json.loads(result)
-                if self.on_message != None:
-                    self.on_message(data)
-                    print("[message] end")
+                self.on_message(result)
+                                   
         except Exception as e:
             print('[on_message] error : ' + str(e))        

@@ -24,7 +24,7 @@ class KlineTask:
         self.end_time = end_time
 
     def get_kline_request(self):
-        id = self.symbol + '-' + self.period
+        id = self.symbol + '_' + self.period
         request = """{"req": "market.%s.kline.%s","id": "%s","from": %d,"to": %d}""" \
                 % (self.symbol, self.period, id, self.start_time + 1,self.end_time )
         return request
@@ -91,7 +91,7 @@ class KlineTaskConsumer:
         start_time = time.time()
 
         collection = self.db_conn.get_collection(db_name)
-        sp = db_name.split('-')
+        sp = db_name.split('_')
 
         for single_data in datas: 
             try:
@@ -111,13 +111,13 @@ class KlineTaskConsumer:
 
 class KlineTaskProducer:
     def __init__(self, db_conn, init_run=False):
-        #self.periods = ['1min','5min','15min','30min','60min','1day','1week']
-        self.periods = ['1min']
+        self.periods = ['1min','5min','15min','30min','60min','1day','1week']
+        # self.periods = ['1min']
         self.init_run = init_run
         self.db_conn = db_conn
         self.symbols = None
         self.task_queue = queue.Queue(maxsize = 12)
-        self.task_sem = threading.Semaphore(6)
+        self.task_sem = threading.Semaphore(2)
 
     def start(self):
         self.thread = threading.Thread(target=self.run)

@@ -25,6 +25,7 @@ class Main:
 					   {'symbol':'iotausdt','init_time':'2018-05-08 00:00:00'},
 					   {'symbol':'adausdt','init_time':'2018-04-17 00:00:00'},
 					   {'symbol':'steemusdt','init_time':'2018-04-28 00:00:00'},
+					   {'symbol':'wiccusdt','init_time':'2018-05-31 00:00:00'}, 
 					   {'symbol':'socusdt','init_time':'2018-05-11 00:00:00'}, 
 					   {'symbol':'ctxcusdt','init_time':'2018-04-24 00:00:00'},
 					   {'symbol':'actusdt','init_time':'2018-04-23 00:00:00'}, 
@@ -81,8 +82,11 @@ class Main:
 						cur_time = int(time.mktime(time_t))
 						self.db_conn.hset(symbol,cur_time_key, cur_time)
 				#添加一个开关方便动态进行数据获取
-				if not self.db_conn.hexists(symbol,'enabled') or overwrite:
+				if overwrite:
+					 self.db_conn.hset(symbol,'enabled',1)
+				elif not self.db_conn.hexists(symbol,'enabled'):
 					self.db_conn.hset(symbol,'enabled',0)
+
 			except Exception as e:
 				print("[init] 2 " + str(e))
 
