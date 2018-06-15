@@ -53,18 +53,17 @@ class KlineTaskConsumer:
 
             if self.current_task.task_type == TaskType.Stop:
                 print('[GetKlineTask] Stop.')
-                #self.data_conn.on_message = None
-                #self.data_conn.stop()
+                self.data_conn.on_message = None
+                self.data_conn.stop()
                 self.running = False
                 self.task_sem.release()
 
             elif self.current_task.task_type == TaskType.EndASymbol:
-                pass
                 #self.db_conn.hset(self.current_task.symbol, 'enabled', 2)
                 self.task_sem.release()
 
             elif self.current_task.task_type == TaskType.GetData:          
-                request = self.current_task.get_kline_request()                               
+                request = self.current_task.get_kline_request()
                 self.data_conn.send(request)
 
     def on_message(self, message):
@@ -139,7 +138,7 @@ class KlineTaskProducer:
         for symbol in self.symbols:
             enabled = self.db_conn.hget(symbol, 'enabled')
         
-            if int(enabled) != 1:
+            if int(enabled) == 0:
                 continue
             
             for period in self.periods:
