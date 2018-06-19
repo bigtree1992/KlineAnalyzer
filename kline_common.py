@@ -25,14 +25,14 @@ def init_logging(module_name, console=False):
     日志文件设置，每天切换一个日志文件
     """
 
-    if not os.path.exists(KlineConfig.LogPath):
-        os.makedirs(KlineConfig.LogPath) 
+    if not os.path.exists(kline_config.LogPath):
+        os.makedirs(kline_config.LogPath) 
 
     logger = logging.getLogger()
     #logging.basicConfig()
     logger.setLevel(logging.INFO)
 
-    log_file = logging.handlers.TimedRotatingFileHandler(KlineConfig.LogPath + module_name + '_log', 'MIDNIGHT', 1, 0)#
+    log_file = logging.handlers.TimedRotatingFileHandler(kline_config.LogPath + module_name + '_log', 'MIDNIGHT', 1, 0)#
     log_file.suffix = "%Y_%m_%d.log"
     
     formatter = logging.Formatter(
@@ -132,6 +132,7 @@ class DataConnection:
         
         self._ws_connection = tornado.websocket.WebSocketClientConnection(request)
         self._ws_connection.connect_future.add_done_callback(self._on_open)
+        self.is_stop = True
             
     def _check_alive(self):
         if self._connect_status != self.CONNECTED:
@@ -155,16 +156,21 @@ class DataConnection:
         if self._connect_status == self.DISCONNECTED:
             return
         self._connect_status = self.DISCONNECTED
-        if self._ws_connection:
-            self._io_loop.add_callback(self._reconnect)
-            
+        self._io_loop.add_callback(self._stop)
+
+    def _stop(self):
+        if self._ws_connection != None:
+            self._ws_connection.close()
+            self._ws_connection = None
+        self.is_stop = True 
+       
     def _reconnect(self):
         logging.info('[connect] reconnect')
         
         if self._ws_connection != None:
             self._ws_connection.close()
             self._ws_connection = None
-        
+        self.is_stop = False        
         self._io_loop.add_callback(self.connect)
 
     def send(self, msg):
@@ -227,7 +233,8 @@ class DataConnection:
         self.msg_none = True
         self.stop_time = time.time()
         self._connect_status = self.DISCONNECTED
-        self._reconnect()
+        if not self.is_stop:
+            self._reconnect()
                
     def _on_message(self, message):
         try:

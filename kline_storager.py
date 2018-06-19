@@ -9,6 +9,8 @@ import queue
 import pymongo
 import threading
 import traceback
+import tornado
+import logging
 
 import kline_common
 
@@ -99,7 +101,7 @@ class KlineTaskConsumer:
                 self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
             except pymongo.errors.DuplicateKeyError as e:
                 self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
-                logging.warrning("[Task] %s DuplicateKeyError." % (db_name))
+                logging.warning("[Task] %s DuplicateKeyError." % (db_name))
             except BaseException as e:
                 # ToDo : 可能是数据库掉线了
                 logging.error("[Task] InsertOne Error : " + str(e))
@@ -213,7 +215,7 @@ class KlineTaskProducer:
         end_time = cur_time = int( time.time() )
         #计算拉取的数量，大于300的不处理，需要由init过程单独完成
         if (end_time - start_time) / time_step > 300:
-            print('[post_task] warrning : ' + symbol + ' data to get > 300.')
+            logging.warning('[post_task]' + symbol + ' data to get > 300.')
             return
         #生成一个任务并放到任务队列等待处理
         task = KlineTask(TaskType.GetData, symbol, period, start_time, end_time)
@@ -292,8 +294,8 @@ if __name__ == "__main__":
     
     init_run = False
 
-    if len(sys.argv) > 0:
-        if sys.argv[0] == 'init':
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'init':
             init_run = True
 
     kline_common.init_logging('kline_storager',init_run)
