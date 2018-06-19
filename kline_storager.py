@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 # author: shubo
 
+import sys
 import time
 import enum
 import random
 import queue
-import threading
 import pymongo
-import kline_common
+import threading
 import traceback
+
+import kline_common
 
 class TaskType(enum.Enum):
     GetData = 1
@@ -52,7 +54,7 @@ class KlineTaskConsumer:
             self.current_task = self.task_queue.get()
 
             if self.current_task.task_type == TaskType.Stop:
-                print('[GetKlineTask] Stop.')
+                logging.info('[GetKlineTask] Stop.')
                 self.data_conn.on_message = None
                 self.data_conn.stop()
                 self.running = False
@@ -69,8 +71,7 @@ class KlineTaskConsumer:
     def on_message(self, message):
             
         if message['status'] != 'ok':
-            print("[GetKlineTask] status != ok -> " + str(message))
-
+            logging.error("[Task] status != ok -> " + str(message))
             self.task_sem.release()
             return
 
@@ -78,7 +79,7 @@ class KlineTaskConsumer:
 
         data_count = len(message['data'])            
         if data_count <= 0:
-            print("[GetKlineTask] %s Task Stop 1001." % (db_name))             
+            logging.info("[Task] %s Task Stop 1001." % (db_name))             
             self.task_sem.release() 
             return
 
@@ -98,13 +99,14 @@ class KlineTaskConsumer:
                 self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
             except pymongo.errors.DuplicateKeyError as e:
                 self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
-                print("[GetKlineTask] %s DuplicateKeyError." % (db_name))
+                logging.warrning("[Task] %s DuplicateKeyError." % (db_name))
             except BaseException as e:
-                print("[GetKlineTask] InsertOne Error : " + str(e))
+                # ToDo : 可能是数据库掉线了
+                logging.error("[Task] InsertOne Error : " + str(e))
         
         end_time = time.time()
         
-        print("[insert_all] : " + str(len(message['data'])) + ' time : ' + str(end_time - start_time))
+        logging.info("[Task] insert : " + str(len(message['data'])) + ' time : ' + str(end_time - start_time))
         
         self.task_sem.release()
 
@@ -151,7 +153,7 @@ class KlineTaskProducer:
         self._put_task(task)
 
         end_time = time.time()
-        print('[init] total_time = ' + str(end_time - start_time))
+        logging.info('[init] total_time = ' + str(end_time - start_time))
 
     def _run_in_runtime(self):
         while self.running:
@@ -263,7 +265,8 @@ class KlineTaskProducer:
             raise Exception('unkonwn period ' + period)
 
 class Main:
-    def __init__(self):
+    def __init__(self, is_init):
+        self.is_init = is_init
         self.db_conn = kline_common.DBConnection()
         self.data_conn = kline_common.DataConnection()
         
@@ -274,7 +277,7 @@ class Main:
 
     def on_open(self):
         try:
-            producer = KlineTaskProducer(self.db_conn,True)
+            producer = KlineTaskProducer(self.db_conn,self.is_init)
             producer.start()
             
             consumer = KlineTaskConsumer(self.data_conn,self.db_conn,producer.task_queue,producer.task_sem)
@@ -282,15 +285,24 @@ class Main:
             
         except Exception as e:
             msg = traceback.format_exc() # 方式1  
-            print (msg)  
+            logging.error(msg)  
     
 
 if __name__ == "__main__":
-    main = Main()
+    
+    init_run = False
+
+    if len(sys.argv) > 0:
+        if sys.argv[0] == 'init':
+            init_run = True
+ 
+    init_logging('kline_storager',init_run)
+    
+    main = Main(init_run)
     main.start()
     
     try:
         tornado.ioloop.IOLoop.instance().start()
     except KeyboardInterrupt:
-        print('[runtime] exit .')
+        logging.error('[runtime] exit .')
     

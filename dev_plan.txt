@@ -9,6 +9,7 @@
 
 
 脚本模块划分
+kline_config.py K线配置模块
 kline_common.py K线通用模块
 kline_init.py K线数据基础数据初始化
 kline_storager.py K线历史数据存储模块

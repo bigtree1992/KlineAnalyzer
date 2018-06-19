@@ -1,7 +1,12 @@
-import kline_common
-import pymongo
-import redis
+# -*- coding: utf-8 -*-
+# author: shubo
+
 import time
+import redis
+import logging
+import pymongo
+
+import kline_common
 
 # 用于初始化交易对信息以及，交易对的kline初始时间
 # 支持添加交易对之后动态更新，支持脚本的反复多次运行，不会出错
@@ -63,7 +68,7 @@ class Main:
 				symbol = item['symbol']
 				self.db_conn.rpush('symbols',str(symbol))
 			except Exception as e:
-				print("[init] 1 " + str(e))
+				logging.error("[init] 1 " + str(e))
 		
 		cur_times = ['cur_time_1min', 'cur_time_5min', 
 					 'cur_time_15min', 'cur_time_30min', 'cur_time_60min', 
@@ -81,8 +86,6 @@ class Main:
 						time_t = time.strptime(init_time, "%Y-%m-%d %H:%M:%S")
 						cur_time = int(time.mktime(time_t))
 						self.db_conn.hset(symbol,cur_time_key, cur_time)
-
-					#self.db_conn.hset(symbol,cur_time_key, int(time.time() - 300))
 				
 				#添加一个开关方便动态进行数据获取
 				if overwrite:
@@ -91,8 +94,9 @@ class Main:
 					self.db_conn.hset(symbol,'enabled',0)
 
 			except Exception as e:
-				print("[init] 2 " + str(e))
+				logging.error("[init] 2 " + str(e))
 
 if __name__ == "__main__":
+	init_logging('kline_init', True)
 	main = Main()
 	main.start(False)

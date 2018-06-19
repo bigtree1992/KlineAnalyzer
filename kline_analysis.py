@@ -1,5 +1,9 @@
+# -*- coding: utf-8 -*-
+# author: shubo
+
 import time
 import json
+import logging
 
 import kline_common
 
@@ -30,13 +34,13 @@ class Main:
                 self._process_data(data)
                 
             except Exception as e:
-                print("[error] : " + str(e))
-                print(topic['data'])
+                logging.error(str(e))
     
     def _process_data(self, data):
-        print(data['ch'] , data['tick']['id'], data['tick']['close'])
+        logging.info(data['ch'] , data['tick']['id'], data['tick']['close'])
 
 
 if __name__ == "__main__":
+    init_logging('kline_analysis')
     main = Main()
     main.start()

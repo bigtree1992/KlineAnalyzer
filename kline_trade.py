@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
+# author: shubo
+
 import time
+import logging
 import kline_common
 
 # 交易模块负责进行发送交易指令
@@ -14,8 +18,9 @@ class Main:
 
         for data in pubsub.listen():
             if data['channel'] == b'trade_cmd':
-                print(data['data'])
+                logging.info(data['data'])
 
 if __name__ == "__main__":
+    init_logging('kline_trade')
     main = Main()
     main.start()

@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
+# author: shubo
+
 import time
+import logging
 import tornado
 import kline_common
 
@@ -28,7 +32,7 @@ class Main:
         self.sub_time = time.time()
         self.count += 1
 
-        print('[runtime] resub : ' + str(self.count))
+        logging.info('[runtime] resub : ' + str(self.count))
         
         symbols = self._get_symbols()
         period = '1min'
@@ -50,12 +54,13 @@ class Main:
         self.db_conn.publish('tick_data', msg)
 
 if __name__ == "__main__":
+    init_logging('kline_runtime')
     main = Main()
     main.start()
     try:
         tornado.ioloop.IOLoop.instance().start()
     except KeyboardInterrupt:
-        print('[runtime] exit .')
+        logging.error('[runtime] exit .')
     
 
 
