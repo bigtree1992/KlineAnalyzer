@@ -53,14 +53,13 @@ class KlineTaskConsumer:
 
             if self.current_task.task_type == TaskType.Stop:
                 print('[GetKlineTask] Stop.')
-                #self.data_conn.on_message = None
-                #self.data_conn.stop()
+                self.data_conn.on_message = None
+                self.data_conn.stop()
                 self.running = False
                 self.task_sem.release()
 
-            elif self.current_task.task_type == TaskType.EndASymbol:
-                pass
-                #self.db_conn.hset(self.current_task.symbol, 'enabled', 2)
+            elif self.current_task.task_type == TaskType.EndASymbol:                
+                self.db_conn.hset(self.current_task.symbol, 'enabled', 2)
                 self.task_sem.release()
 
             elif self.current_task.task_type == TaskType.GetData:          
@@ -71,7 +70,7 @@ class KlineTaskConsumer:
             
         if message['status'] != 'ok':
             print("[GetKlineTask] status != ok -> " + str(message))
-            # ToDo : 重新将任务放到队列
+            
             self.task_sem.release()
             return
 
@@ -112,12 +111,12 @@ class KlineTaskConsumer:
 class KlineTaskProducer:
     def __init__(self, db_conn, init_run=False):
         self.periods = ['1min','5min','15min','30min','60min','1day','1week']
-        # self.periods = ['1min']
+        #self.periods = ['1min']
         self.init_run = init_run
         self.db_conn = db_conn
         self.symbols = None
         self.task_queue = queue.Queue(maxsize = 12)
-        self.task_sem = threading.Semaphore(2)
+        self.task_sem = threading.Semaphore(2 if init_run else 2)
 
     def start(self):
         self.thread = threading.Thread(target=self.run)
@@ -139,7 +138,7 @@ class KlineTaskProducer:
         for symbol in self.symbols:
             enabled = self.db_conn.hget(symbol, 'enabled')
         
-            if int(enabled) != 1:
+            if int(enabled) == 0:
                 continue
             
             for period in self.periods:
@@ -173,19 +172,19 @@ class KlineTaskProducer:
                 if cur_minute % 5 == 1:
                     self._post_task(symbol,'5min')
 
-                if cur_minute % 15 == 2:
+                if cur_minute % 5 == 2:
                     self._post_task(symbol,'15min')
 
-                if cur_minute % 30 == 2:
+                if cur_minute % 5 == 2:
                     self._post_task(symbol,'30min')
 
-                if cur_minute % 60 == 3:
+                if cur_minute % 5 == 3:
                     self._post_task(symbol,'60min')
 
-                if cur_minute % (60 * 24) == 3:
+                if cur_minute % 5 == 3:
                     self._post_task(symbol,'1day')
 
-                if cur_minute % (60 * 24 * 7) == 4:
+                if cur_minute % 5 == 4:
                     self._post_task(symbol,'1week')
 
             end_time = time.time()
@@ -275,7 +274,7 @@ class Main:
 
     def on_open(self):
         try:
-            producer = KlineTaskProducer(self.db_conn,True)
+            producer = KlineTaskProducer(self.db_conn,False)
             producer.start()
             
             consumer = KlineTaskConsumer(self.data_conn,self.db_conn,producer.task_queue,producer.task_sem)
@@ -289,4 +288,9 @@ class Main:
 if __name__ == "__main__":
     main = Main()
     main.start()
+    
+    try:
+        tornado.ioloop.IOLoop.instance().start()
+    except KeyboardInterrupt:
+        print('[runtime] exit .')
     

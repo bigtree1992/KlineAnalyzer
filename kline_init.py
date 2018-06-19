@@ -81,6 +81,9 @@ class Main:
 						time_t = time.strptime(init_time, "%Y-%m-%d %H:%M:%S")
 						cur_time = int(time.mktime(time_t))
 						self.db_conn.hset(symbol,cur_time_key, cur_time)
+
+					#self.db_conn.hset(symbol,cur_time_key, int(time.time() - 300))
+				
 				#添加一个开关方便动态进行数据获取
 				if overwrite:
 					 self.db_conn.hset(symbol,'enabled',1)
@@ -92,4 +95,4 @@ class Main:
 
 if __name__ == "__main__":
 	main = Main()
-	main.start(True)
+	main.start(False)

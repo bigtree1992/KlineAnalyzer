@@ -1,4 +1,5 @@
 import time
+import tornado
 import kline_common
 
 class Main:
@@ -6,28 +7,33 @@ class Main:
         self.db_conn = kline_common.DBConnection()
         self.data_conn = kline_common.DataConnection()
         self.sub_time = 0
+        self.count = 0
         
     def start(self):
         self.db_conn.start(True,False)
         
         self.data_conn.on_open = self.on_open
         self.data_conn.on_message = self.on_message
+        self.data_conn.on_need_update = self.sub_symbols
         self.data_conn.start(True)
 
-    def on_open(self):        
+    def on_open(self):
+
         self.sub_symbols()
     
     def sub_symbols(self):
         
         if time.time() - self.sub_time < 30:
-            return;
+            return
         self.sub_time = time.time()
+        self.count += 1
 
-        print('[runtime] resub.')
+        print('[runtime] resub : ' + str(self.count))
+        
         symbols = self._get_symbols()
         period = '1min'
 
-        for symbol in symbols:            
+        for symbol in symbols:
             request = """{"sub": "market.%s.kline.%s","id": "%s"}""" \
                     % (symbol, period, symbol + '_' + period)
 
@@ -41,13 +47,16 @@ class Main:
         return symbols_ret
 
     def on_message(self, msg):
-        self.sub_symbols()
         self.db_conn.publish('tick_data', msg)
 
 if __name__ == "__main__":
     main = Main()
     main.start()
-
+    try:
+        tornado.ioloop.IOLoop.instance().start()
+    except KeyboardInterrupt:
+        print('[runtime] exit .')
+    
 
 
 
