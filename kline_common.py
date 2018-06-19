@@ -10,6 +10,7 @@ from tornado import gen
 from tornado import httpclient
 from tornado import httputil
 from tornado import ioloop
+
 import tornado
 import tornado.websocket
 
@@ -20,8 +21,9 @@ import time
 class DBConnection:
     def start(self, use_redis = True, use_db = True):
         if use_db:
-            self.client = pymongo.MongoClient('localhost', 27017)
+            self.client = pymongo.MongoClient('localhost',27017)
             self.db = self.client['klinedata']
+            self.db.authenticate('klineapp','klineapp')
         if use_redis:
             self.redis = redis.Redis(host="localhost", port=6379, db=0)
 

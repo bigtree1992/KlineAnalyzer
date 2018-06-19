@@ -62,15 +62,15 @@ class KlineTaskConsumer:
                 self.db_conn.hset(self.current_task.symbol, 'enabled', 2)
                 self.task_sem.release()
 
-            elif self.current_task.task_type == TaskType.GetData:          
-                request = self.current_task.get_kline_request()                               
+            elif self.current_task.task_type == TaskType.GetData:
+                request = self.current_task.get_kline_request()
                 self.data_conn.send(request)
 
     def on_message(self, message):
             
         if message['status'] != 'ok':
             print("[GetKlineTask] status != ok -> " + str(message))
-            
+
             self.task_sem.release()
             return
 
@@ -111,7 +111,7 @@ class KlineTaskConsumer:
 class KlineTaskProducer:
     def __init__(self, db_conn, init_run=False):
         self.periods = ['1min','5min','15min','30min','60min','1day','1week']
-        #self.periods = ['1min']
+        # self.periods = ['1min']
         self.init_run = init_run
         self.db_conn = db_conn
         self.symbols = None
@@ -137,7 +137,7 @@ class KlineTaskProducer:
         start_time = time.time()
         for symbol in self.symbols:
             enabled = self.db_conn.hget(symbol, 'enabled')
-        
+
             if int(enabled) == 0:
                 continue
             
@@ -274,7 +274,7 @@ class Main:
 
     def on_open(self):
         try:
-            producer = KlineTaskProducer(self.db_conn,False)
+            producer = KlineTaskProducer(self.db_conn,True)
             producer.start()
             
             consumer = KlineTaskConsumer(self.data_conn,self.db_conn,producer.task_queue,producer.task_sem)
