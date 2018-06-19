@@ -97,6 +97,6 @@ class Main:
 				logging.error("[init] 2 " + str(e))
 
 if __name__ == "__main__":
-	init_logging('kline_init', True)
+	kline_common.init_logging('kline_init', True)
 	main = Main()
 	main.start(False)

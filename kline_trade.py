@@ -21,6 +21,6 @@ class Main:
                 logging.info(data['data'])
 
 if __name__ == "__main__":
-    init_logging('kline_trade')
+    kline_common.init_logging('kline_trade')
     main = Main()
     main.start()

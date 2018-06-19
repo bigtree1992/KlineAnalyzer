@@ -41,6 +41,6 @@ class Main:
 
 
 if __name__ == "__main__":
-    init_logging('kline_analysis')
+    kline_common.init_logging('kline_analysis')
     main = Main()
     main.start()

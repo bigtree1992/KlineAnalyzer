@@ -295,8 +295,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 0:
         if sys.argv[0] == 'init':
             init_run = True
- 
-    init_logging('kline_storager',init_run)
+
+    kline_common.init_logging('kline_storager',init_run)
     
     main = Main(init_run)
     main.start()
