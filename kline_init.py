@@ -97,6 +97,13 @@ class Main:
 				logging.error("[init] 2 " + str(e))
 
 if __name__ == "__main__":
+	
+	overwrite = False
+
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'overwrite':
+            overwrite = True
+
 	kline_common.init_logging('kline_init', True)
 	main = Main()
-	main.start(False)
+	main.start(overwrite)

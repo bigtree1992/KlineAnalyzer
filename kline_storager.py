@@ -33,112 +33,49 @@ class KlineTask:
                 % (self.symbol, self.period, id, self.start_time + 1,self.end_time )
         return request
 
-class KlineTaskConsumer:
-    def __init__(self, data_conn, db_conn, task_queue, task_sem):
-        self.data_conn = data_conn
-        self.db_conn = db_conn
-        self.data_conn.on_message = self.on_message
-        self.task_queue = task_queue
-        self.task_sem = task_sem
-        self.current_task = None
-        
-    def start(self):
-        self.thread = threading.Thread(target=self._wait_and_process_task)
-        self.running = True
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-
-    def _wait_and_process_task(self):
-        
-        while self.running:
-            self.current_task = self.task_queue.get()
-
-            if self.current_task.task_type == TaskType.Stop:
-                logging.info('[GetKlineTask] Stop.')
-                self.data_conn.on_message = None
-                self.data_conn.stop()
-                self.running = False
-                self.task_sem.release()
-
-            elif self.current_task.task_type == TaskType.EndASymbol:                
-                self.db_conn.hset(self.current_task.symbol, 'enabled', 2)
-                self.task_sem.release()
-
-            elif self.current_task.task_type == TaskType.GetData:
-                request = self.current_task.get_kline_request()
-                self.data_conn.send(request)
-
-    def on_message(self, message):
-            
-        if message['status'] != 'ok':
-            logging.error("[Task] status != ok -> " + str(message))
-            self.task_sem.release()
-            return
-
-        db_name = message['id']
-
-        data_count = len(message['data'])            
-        if data_count <= 0:
-            logging.info("[Task] %s Task Stop 1001." % (db_name))             
-            self.task_sem.release() 
-            return
-
-        datas = message['data']
-        # 根据时间进行排序，确保前面的数据总能被插入
-        if data_count > 1:
-            datas.sort(key = lambda x:x['id'], reverse=False)
-        
-        start_time = time.time()
-
-        collection = self.db_conn.get_collection(db_name)
-        sp = db_name.split('_')
-
-        for single_data in datas: 
-            try:
-                collection.insert_one(single_data)                                
-                self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
-            except pymongo.errors.DuplicateKeyError as e:
-                self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
-                logging.warning("[Task] %s DuplicateKeyError." % (db_name))
-            except BaseException as e:
-                # ToDo : 可能是数据库掉线了
-                logging.error("[Task] InsertOne Error : " + str(e))
-        
-        end_time = time.time()
-        
-        logging.info("[Task] insert : " + str(len(message['data'])) + ' time : ' + str(end_time - start_time))
-        
-        self.task_sem.release()
-
 class KlineTaskProducer:
-    def __init__(self, db_conn, init_run=False):
+    def __init__(self, db_conn, data_conn, init_run=False):
         self.periods = ['1min','5min','15min','30min','60min','1day','1week']
         # self.periods = ['1min']
         self.init_run = init_run
         self.db_conn = db_conn
         self.symbols = None
-        self.task_queue = queue.Queue(maxsize = 12)
-        self.task_sem = threading.Semaphore(2 if init_run else 2)
-
+        #self.task_queue = queue.Queue(maxsize = 12)            
+        self.data_conn = data_conn
+        self.data_conn.on_message = self.on_message
+        self.task_max = 2
+        self.task_sem = threading.BoundedSemaphore(self.task_max)
+        
     def start(self):
-        self.thread = threading.Thread(target=self.run)
+        self.thread = threading.Thread(target=self._run)
         self.running = True
         self.thread.start()
     
     def stop(self):
+        self.release_all()
         self.running = False
-
-    def run(self):
+    
+    def release_all(self):
+        try:
+            for x in range(0,self.task_max):
+                self.task_sem.release()
+        except ValueError as e:
+            pass
+        
+    def _run(self):
         if not self.init_run:
             self._run_in_runtime()
         else :
             self._run_by_init()
 
     def _run_by_init(self):
+        if not self.data_conn.is_connected():
+            logging.error('[init] data_conn.is_connected = False')
+            return
+
         self._get_symbols()
         start_time = time.time()
+        
         for symbol in self.symbols:
             enabled = self.db_conn.hget(symbol, 'enabled')
 
@@ -148,9 +85,12 @@ class KlineTaskProducer:
             for period in self.periods:
                 self._post_task_by_init(symbol, period)
 
+            if not self.data_conn.is_connected():
+                break
+
             task = KlineTask(TaskType.EndASymbol,symbol)
             self._put_task(task)
-
+            
         task = KlineTask(TaskType.Stop)
         self._put_task(task)
 
@@ -159,18 +99,26 @@ class KlineTaskProducer:
 
     def _run_in_runtime(self):
         while self.running:
+            if not self.data_conn.is_connected():
+                time.sleep(5)
+                logging.warning('[running] wait data_conn')
+                continue
+
             start_time = time.time()
             
             self._get_symbols()
             
             cur_minute = int(start_time / 60)
 
-            for symbol in self.symbols:                 
+            for symbol in self.symbols:
                 
                 enabled = self.db_conn.hget(symbol, 'enabled')
                 if int(enabled) != 2:
                     continue
-  
+                
+                if not self.data_conn.is_connected():
+                    break
+
                 self._post_task(symbol,'1min')
                 
                 if cur_minute % 5 == 1:
@@ -199,7 +147,7 @@ class KlineTaskProducer:
 
     def _put_task(self, task):
         self.task_sem.acquire()
-        self.task_queue.put(task)
+        self._process_task(task)
     
     def _get_symbols(self):
         symbols = self.db_conn.lrange('symbols', 0, -1)
@@ -209,14 +157,20 @@ class KlineTaskProducer:
 
     def _post_task(self, symbol, period):
         
-        time_step = self._create_time_step(period, 1)
         #开始时间设置为当前数据写入到的时间
         start_time = int(self.db_conn.hget(symbol, 'cur_time_' + period))
         end_time = cur_time = int( time.time() )
+
+        time_step = self._create_time_step(period, 1)
+        
+        if (end_time - start_time) < time_step:
+            #logging.info('[post_task] no need send task : ' + symbol + ' - ' + period)
+            return        
         #计算拉取的数量，大于300的不处理，需要由init过程单独完成
         if (end_time - start_time) / time_step > 300:
             logging.warning('[post_task]' + symbol + ' data to get > 300.')
             return
+        
         #生成一个任务并放到任务队列等待处理
         task = KlineTask(TaskType.GetData, symbol, period, start_time, end_time)
         self._put_task(task)
@@ -266,29 +220,102 @@ class KlineTaskProducer:
         else:
             raise Exception('unkonwn period ' + period)
 
+    def _process_task(self, task):
+
+        if task.task_type == TaskType.Stop:
+            logging.info('[Task] Stop.')
+            self.task_sem.release()
+            self.running = False
+
+            self.data_conn.on_message = None
+            self.data_conn.stop()
+
+        elif task.task_type == TaskType.EndASymbol:
+            self.db_conn.hset(task.symbol, 'enabled', 2)
+            self.task_sem.release()
+
+        elif task.task_type == TaskType.GetData:
+            request = task.get_kline_request()
+            # 如果发送失败 释放任务名额
+            
+            if not self.data_conn.send(request):
+                self.task_sem.release()
+
+    def on_message(self, message):
+        
+        if message['status'] != 'ok':
+            logging.error("[Task] status != ok -> " + str(message))
+            self.task_sem.release()
+            return
+
+        db_name = message['id']
+
+        data_count = len(message['data'])            
+        if data_count <= 0:
+            logging.info("[Task] %s Task Stop 1001." % (db_name))             
+            self.task_sem.release() 
+            return
+
+        datas = message['data']
+        # 根据时间进行排序，确保前面的数据总能被插入
+        if data_count > 1:
+            datas.sort(key = lambda x:x['id'], reverse=False)
+        
+        start_time = time.time()
+
+        collection = self.db_conn.get_collection(db_name)
+        sp = db_name.split('_')
+
+        for single_data in datas: 
+            try:
+                collection.insert_one(single_data)                                
+                self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
+            except pymongo.errors.DuplicateKeyError as e:
+                self.db_conn.hset(sp[0], 'cur_time_' + sp[1], single_data['id'] + 1)
+                logging.warning("[Task] insert %s DuplicateKeyError." % (db_name))
+            except BaseException as e:
+                # ToDo : 可能是数据库掉线了
+                logging.error("[Task] %s InsertOne Error : %s" % (db_name, str(e)))
+        
+        end_time = time.time()
+        
+        logging.info("[Task] insert %s:%d time : %f" % (db_name,len(message['data']),end_time - start_time))
+        
+        self.task_sem.release()
+
 class Main:
     def __init__(self, is_init):
         self.is_init = is_init
         self.db_conn = kline_common.DBConnection()
         self.data_conn = kline_common.DataConnection()
-        
-    def start(self):
-        self.db_conn.start()
-        self.data_conn.on_open = self.on_open
-        self.data_conn.start()
-
-    def on_open(self):
+        self.first_open = True
+    
+    def start(self):       
         try:
-            producer = KlineTaskProducer(self.db_conn,self.is_init)
-            producer.start()
-            
-            consumer = KlineTaskConsumer(self.data_conn,self.db_conn,producer.task_queue,producer.task_sem)
-            consumer.start()
-            
+            self.db_conn.start()
+            self.data_conn.on_open = self.on_open
+            self.data_conn.start()
+
         except Exception as e:
             msg = traceback.format_exc() # 方式1  
-            logging.error(msg)  
+            logging.error(msg) 
     
+    def stop(self):
+        self.producer.stop()        
+        self.data_conn.stop()
+        self.db_conn.start()
+    
+    def on_open(self):
+        try:
+            if self.first_open:
+                self.first_open = False
+                self.producer = KlineTaskProducer(self.db_conn,self.data_conn,self.is_init)
+                self.producer.start()
+            else:
+                self.producer.release_all()
+        except Exception as e:
+            msg = traceback.format_exc() # 方式1  
+            logging.error(msg)
 
 if __name__ == "__main__":
     
@@ -297,8 +324,10 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == 'init':
             init_run = True
-
-    kline_common.init_logging('kline_storager',init_run)
+    suffix = 'init'
+    if not init_run:
+        suffix = 'runtime'
+    kline_common.init_logging('kline_storager_' + suffix, True)#init_run
     
     main = Main(init_run)
     main.start()
@@ -307,4 +336,4 @@ if __name__ == "__main__":
         tornado.ioloop.IOLoop.instance().start()
     except KeyboardInterrupt:
         logging.error('[runtime] exit .')
-    
+        main.stop()

@@ -32,7 +32,7 @@ def init_logging(module_name, console=False):
     #logging.basicConfig()
     logger.setLevel(logging.INFO)
 
-    log_file = logging.handlers.TimedRotatingFileHandler(kline_config.LogPath + module_name + '_log', 'MIDNIGHT', 1, 0)#
+    log_file = logging.handlers.TimedRotatingFileHandler(kline_config.LogPath + module_name + '.log', 'MIDNIGHT', 1, 0)#
     log_file.suffix = "%Y_%m_%d.log"
     
     formatter = logging.Formatter(
@@ -100,30 +100,29 @@ class DataConnection:
     DISCONNECTED = 0
     CONNECTING = 1
     CONNECTED = 2
+    STOPED = 3
 
     def __init__(self):
         self.connect_timeout = 30
         self.request_timeout = 5
         self._io_loop = ioloop.IOLoop.instance()
         self._ws_connection = None
-        self._connect_status = self.DISCONNECTED
-        self._check_alive_on = False
+        self._connect_status = DataConnection.DISCONNECTED        
+        self._stop_time = None
+        self.on_need_update = None
+        self.on_send_failed = None
+        self.on_message = None
 
-        self.msg_none = None
-        self.stop_time = time.time()
-        
-        
     def start(self, receive_raw=False):
-        self.receive_raw = receive_raw
+        self._receive_raw = receive_raw
         self._io_loop.add_callback(self.connect)
 
-        if not self._check_alive_on:
-            ioloop.PeriodicCallback(self._check_alive, 5000).start()
-            self._check_alive_on = True
-    
+        ioloop.PeriodicCallback(self._check_alive, 5000).start()
+        
     def connect(self):
-        logging.info('[connect] starting...')
-        self._connect_status = self.CONNECTING
+        logging.info('[connect] starting...')        
+        self._connect_status = DataConnection.CONNECTING
+        
         headers = httputil.HTTPHeaders({'Content-Type': 'application/json'})
         request = httpclient.HTTPRequest(url = "wss://api.huobi.br.com/ws",
                                          connect_timeout=self.connect_timeout,
@@ -132,16 +131,15 @@ class DataConnection:
         
         self._ws_connection = tornado.websocket.WebSocketClientConnection(request)
         self._ws_connection.connect_future.add_done_callback(self._on_open)
-        self.is_stop = True
             
     def _check_alive(self):
-        if self._connect_status != self.CONNECTED:
+        if self._connect_status != DataConnection.CONNECTED:
             return
 
         delta = time.time() - self.alive_time
         if delta > 1:
             logging.warning('[connect] timeout.')
-            self._connect_status = self.DISCONNECTED
+            self._connect_status = DataConnection.DISCONNECTED
             if self._ws_connection != None:
                 self._ws_connection.close()
                 self._ws_connection = None
@@ -149,50 +147,62 @@ class DataConnection:
             if (time.time() - self.update_time ) > 5:
                 logging.warning('[connect] need update')
                 if self.on_need_update != None:
-                    self.on_need_update
+                    self.on_need_update()
 
     def stop(self):
         logging.info('[connect] stop')
-        if self._connect_status == self.DISCONNECTED:
+        if self._connect_status == DataConnection.DISCONNECTED:
             return
-        self._connect_status = self.DISCONNECTED
+        self._connect_status = DataConnection.DISCONNECTED
         self._io_loop.add_callback(self._stop)
 
     def _stop(self):
+        self._connect_status = DataConnection.STOPED
         if self._ws_connection != None:
             self._ws_connection.close()
             self._ws_connection = None
-        self.is_stop = True 
-       
+               
     def _reconnect(self):
         logging.info('[connect] reconnect')
         
         if self._ws_connection != None:
             self._ws_connection.close()
             self._ws_connection = None
-        self.is_stop = False        
+        
         self._io_loop.add_callback(self.connect)
 
     def send(self, msg):
-        if self._connect_status != self.CONNECTED:
-            return
+        if self._connect_status != DataConnection.CONNECTED:
+            return False
         if self._ws_connection == None:
-            return
+            return False
 
         self._io_loop.add_callback(self._send, msg )
+        return True
 
     def _send(self, msg):
-        if self._connect_status != self.CONNECTED:
+        if self._connect_status != DataConnection.CONNECTED:
+            if self.on_send_failed != None:
+                self.on_send_failed()
             return
+        
         if self._ws_connection == None:
+            if self.on_send_failed != None:
+                self.on_send_failed()
             return
+        
+        try:
+            self._ws_connection.write_message(msg)
+        except Exception as e:
+            logging.error('[connect] send Failed:' + str(e))
 
-        self._ws_connection.write_message(msg)
-
+            if self.on_send_failed != None:
+                self.on_send_failed()
+                    
     def _on_open(self, future):
         if future.exception() is None:
             logging.info('[connect] started')
-            self._connect_status = self.CONNECTED
+            self._connect_status = DataConnection.CONNECTED
             self._ws_connection = future.result()
             
             self.alive_time = time.time() + 5
@@ -207,11 +217,11 @@ class DataConnection:
             self._reconnect()
 
     def is_connected(self):
-        return self._ws_connection is not None
+        return self._ws_connection is not None and self._connect_status == DataConnection.CONNECTED
 
     @gen.coroutine
     def _read_messages(self):
-        while self._connect_status == self.CONNECTED and self._ws_connection != None:
+        while self.is_connected():
             msg = None
             try:
                 msg = yield self._ws_connection.read_message()
@@ -223,17 +233,18 @@ class DataConnection:
                 logging.warning('[connect] read None')  
                 break
 
-            if self.msg_none != None:
-                logging.info('[connect] stop time : ' + str(time.time() - self.stop_time))
-                self.msg_none = None
+            if self._stop_time != None:
+                logging.info('[connect] stop time : ' + str(time.time() - self._stop_time))
+                self._stop_time = None
+            
             self.update_time = time.time()
             self._on_message(msg)
 
         logging.info('[connect] read end.')
-        self.msg_none = True
-        self.stop_time = time.time()
-        self._connect_status = self.DISCONNECTED
-        if not self.is_stop:
+        self._stop_time = time.time()
+        
+        if self._connect_status != DataConnection.STOPED:
+            self._connect_status = DataConnection.DISCONNECTED            
             self._reconnect()
                
     def _on_message(self, message):
@@ -251,7 +262,7 @@ class DataConnection:
             if self.on_message == None:
                 return
 
-            if not self.receive_raw:
+            if not self._receive_raw:
                 data = json.loads(result)
                 self.on_message(data)
             else:
