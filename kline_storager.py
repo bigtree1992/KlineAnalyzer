@@ -41,8 +41,7 @@ class KlineTaskProducer:
         self.db_conn = db_conn
         self.symbols = None
         #self.task_queue = queue.Queue(maxsize = 12)            
-        self.data_conn = data_conn
-        self.data_conn.on_message = self.on_message
+        self.data_conn = data_conn        
         self.task_max = 2
         self.task_sem = threading.BoundedSemaphore(self.task_max)
         
@@ -57,7 +56,7 @@ class KlineTaskProducer:
     
     def release_all(self):
         try:
-            for x in range(0,self.task_max):
+            for x in range(0, self.task_max):
                 self.task_sem.release()
         except ValueError as e:
             pass
@@ -288,8 +287,11 @@ class Main:
         self.is_init = is_init
         self.db_conn = kline_common.DBConnection()
         self.data_conn = kline_common.DataConnection()
+        self.data_conn.stop_check_time = 60
+        self.data_conn.on_message_stop = self.data_conn.reconnect
+
         self.first_open = True
-    
+
     def start(self):       
         try:
             self.db_conn.start()
@@ -301,7 +303,7 @@ class Main:
             logging.error(msg) 
     
     def stop(self):
-        self.producer.stop()        
+        self.producer.stop()
         self.data_conn.stop()
         self.db_conn.start()
     
@@ -310,8 +312,10 @@ class Main:
             if self.first_open:
                 self.first_open = False
                 self.producer = KlineTaskProducer(self.db_conn,self.data_conn,self.is_init)
+                self.data_conn.on_message = self.producer.on_message
                 self.producer.start()
             else:
+                self.data_conn.on_message = self.producer.on_message
                 self.producer.release_all()
         except Exception as e:
             msg = traceback.format_exc() # 方式1  

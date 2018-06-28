@@ -18,7 +18,7 @@ class Main:
         
         self.data_conn.on_open = self.on_open
         self.data_conn.on_message = self.on_message
-        self.data_conn.on_need_update = self.sub_symbols
+        self.data_conn.on_message_stop = self.sub_symbols
         self.data_conn.start(True)
 
     def on_open(self):

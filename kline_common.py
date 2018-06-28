@@ -105,11 +105,12 @@ class DataConnection:
     def __init__(self):
         self.connect_timeout = 30
         self.request_timeout = 5
+        self.stop_check_time = 5
         self._io_loop = ioloop.IOLoop.instance()
         self._ws_connection = None
         self._connect_status = DataConnection.DISCONNECTED        
         self._stop_time = None
-        self.on_need_update = None
+        self.on_message_stop = None
         self.on_send_failed = None
         self.on_message = None
 
@@ -134,9 +135,11 @@ class DataConnection:
             
     def _check_alive(self):
         if self._connect_status != DataConnection.CONNECTED:
+            logging.warning('[connect] check_alive but not connected : ' + str(self._connect_status))
             return
 
         delta = time.time() - self.alive_time
+        
         if delta > 1:
             logging.warning('[connect] timeout.')
             self._connect_status = DataConnection.DISCONNECTED
@@ -144,10 +147,12 @@ class DataConnection:
                 self._ws_connection.close()
                 self._ws_connection = None
         else:
-            if (time.time() - self.update_time ) > 5:
-                logging.warning('[connect] need update')
-                if self.on_need_update != None:
-                    self.on_need_update()
+            if (time.time() - self.update_time ) > self.stop_check_time:
+                logging.warning('[connect] message stop find.')
+                if self.on_message_stop != None:
+                    self.on_message_stop()
+            else:
+                logging.warning('[connect] online.')
 
     def stop(self):
         logging.info('[connect] stop')
@@ -161,7 +166,13 @@ class DataConnection:
         if self._ws_connection != None:
             self._ws_connection.close()
             self._ws_connection = None
-               
+    
+    def reconnect(self):
+        if self._connect_status == DataConnection.CONNECTED:
+            if self._ws_connection != None:
+                self._ws_connection.close()
+                self._ws_connection = None
+
     def _reconnect(self):
         logging.info('[connect] reconnect')
         
@@ -236,8 +247,7 @@ class DataConnection:
             if self._stop_time != None:
                 logging.info('[connect] stop time : ' + str(time.time() - self._stop_time))
                 self._stop_time = None
-            
-            self.update_time = time.time()
+                        
             self._on_message(msg)
 
         logging.info('[connect] read end.')
@@ -260,12 +270,15 @@ class DataConnection:
                 return
             
             if self.on_message == None:
+                logging.warning('[connect] on_message is None.')       
                 return
 
             if not self._receive_raw:
                 data = json.loads(result)
+                self.update_time = time.time()
                 self.on_message(data)
             else:
+                self.update_time = time.time()
                 self.on_message(result)
 
         except Exception as e:
