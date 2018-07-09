@@ -331,7 +331,7 @@ if __name__ == "__main__":
     suffix = 'init'
     if not init_run:
         suffix = 'runtime'
-    kline_common.init_logging('kline_storager_' + suffix, True)#init_run
+    kline_common.init_logging('kline_storager_' + suffix, init_run)#init_run
     
     main = Main(init_run)
     main.start()

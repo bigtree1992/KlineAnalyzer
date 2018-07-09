@@ -54,7 +54,7 @@ class Main:
         self.db_conn.publish('tick_data', msg)
 
 if __name__ == "__main__":
-    init_logging('kline_runtime')
+    kline_common. init_logging('kline_runtime')
     main = Main()
     main.start()
     try:
